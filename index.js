@@ -75,7 +75,7 @@ app.post('/api/persons', async (request, response, next) => {
             return response.status(400).json({ error: 'name must by unique' });
         }
 
-        const person = new Person({name, number})
+        const person = new Person({ name, number })
         await person.save();
         return response.status(201).end()
     } catch (error) {
@@ -91,7 +91,7 @@ app.put('/api/persons/:id', async (request, response, next) => {
             return response.json({ error: 'name and number cannot be empty' }).status(400)
         }
 
-        const person = await Person.findByIdAndUpdate(request.params.id, { name, number }, {new: true});
+        const person = await Person.findByIdAndUpdate(request.params.id, { name, number }, { new: true });
 
         if (!person) {
             return response.json({ error: 'not found' }).status(404);
@@ -103,13 +103,31 @@ app.put('/api/persons/:id', async (request, response, next) => {
     }
 })
 
+app.get('/info', (request, response) => {
+
+    try {
+        Person.find({}).then(result => {
+            let html = `
+    <p>Phonebook has info for ${result.length} people(s)</p>
+    <br/>
+    `;
+
+            html = html.concat((new Date()).toLocaleString());
+
+            response.send(html)
+        })
+    } catch (error) {
+        next(error)
+    }
+})
+
 app.get('/api/persons/:id', async (req, res, next) => {
 
     try {
-        const person = await Person.findById(request.params.id);
+        const person = await Person.findById(req.params.id);
 
         if (person) {
-            return res.json(match);
+            return res.json(person);
         }
 
         return res.status(404).end();
