@@ -1,6 +1,37 @@
+require('dotenv').config()
 const express = require('express')
 const morgan = require('morgan')
 const cors = require('cors')
+const Person = require('./models/person')
+
+const mongoose = require('mongoose')
+
+mongoose.set('strictQuery', false)
+
+const url = process.env.MONGO_URI
+console.log('connecting to', url)
+mongoose.connect(url)
+    .then(result => {
+        console.log('connected to MongoDB')
+    })
+    .catch((error) => {
+        console.log('error connecting to MongoDB:', error.message)
+    })
+
+
+const errorHandler = (error, request, response, next) => {
+    console.error(error.message)
+
+    if (error.name === 'CastError') {
+        return response.status(400).send({ error: 'malformatted id' })
+    }
+
+    next(error)
+}
+
+const unknownEndpoint = (request, response) => {
+    response.status(404).send({ error: 'unknown endpoint' })
+}
 
 const app = express()
 app.use(cors())
@@ -10,94 +41,100 @@ app.use(express.static('frontend'))
 morgan.token('req-body', (req) => JSON.stringify(req.body));
 app.use(morgan(function (tokens, req, res) {
     return [
-      tokens.method(req, res),
-      tokens.url(req, res),
-      tokens.status(req, res),
-      tokens.res(req, res, 'content-length'), '-',
-      tokens['response-time'](req, res), 'ms',
-      tokens['req-body'](req, res)
+        tokens.method(req, res),
+        tokens.url(req, res),
+        tokens.status(req, res),
+        tokens.res(req, res, 'content-length'), '-',
+        tokens['response-time'](req, res), 'ms',
+        tokens['req-body'](req, res)
     ].join(' ')
-  }));
+}));
 
-let persons = [
-    {
-        "id": 1,
-        "name": "Arto Hellas",
-        "number": "040-123456"
-    },
-    {
-        "id": 2,
-        "name": "Ada Lovelace",
-        "number": "39-44-5323523"
-    },
-    {
-        "id": 3,
-        "name": "Dan Abramov",
-        "number": "12-43-234345"
-    },
-    {
-        "id": 4,
-        "name": "Mary Poppendieck",
-        "number": "39-23-6423122"
+app.get('/api/persons', (request, response, next) => {
+    try {
+        Person.find({}).then(result => {
+            response.json(result)
+        })
+    } catch (error) {
+        next(error)
     }
-]
-
-app.get('/api/persons', (request, response) => {
-    response.json(persons)
 })
 
-app.post('/api/persons', (request, response) => {
-    const { name, number } = request.body;
+app.post('/api/persons', async (request, response, next) => {
 
-    if (!name || !name.length == 0 || !number || !number.length == 0) {
-        return response.json({ error: 'name and number cannot be empty' }).status(400)
+    try {
+        const { name, number } = request.body;
+
+        if (!name || name.length == 0 || !number || number.length == 0) {
+            return response.json({ error: 'name and number cannot be empty' }).status(400)
+        }
+
+        const exist = await Person.findById(request.params.id);
+
+        if (exist) {
+            return response.status(400).json({ error: 'name must by unique' });
+        }
+
+        const person = new Person({name, number})
+        await person.save();
+        return response.status(201).end()
+    } catch (error) {
+        next(error)
     }
-
-    const exist = persons.find(person => person.name == name);
-
-    if (exist) {
-        return response.json({ error: 'name must be unique' }).status(400);
-    }
-
-    id = Math.floor(Math.random() * 10000);
-
-    persons.push({ id, name, number });
-
-    return response.json(persons)
 })
 
-app.get('/api/persons/:id', (req, res, next) => {
-    const match = persons.find(person => person.id == req.params.id);
+app.put('/api/persons/:id', async (request, response, next) => {
+    try {
+        const { name, number } = request.body;
 
-    if (match) {
-        return res.json(match);
+        if (!name || name.length == 0 || !number || number.length == 0) {
+            return response.json({ error: 'name and number cannot be empty' }).status(400)
+        }
+
+        const person = await Person.findByIdAndUpdate(request.params.id, { name, number }, {new: true});
+
+        if (!person) {
+            return response.json({ error: 'not found' }).status(404);
+        }
+
+        return response.json(person)
+    } catch (err) {
+        next(err)
     }
-
-    return res.status(404).send('not found');
 })
 
-app.delete('/api/persons/:id', (req, res, next) => {
-    const index = persons.findIndex(person => person.id == req.params.id);
+app.get('/api/persons/:id', async (req, res, next) => {
 
-    if (index == -1) {
-        return res.status(404).send('not found');
+    try {
+        const person = await Person.findById(request.params.id);
+
+        if (person) {
+            return res.json(match);
+        }
+
+        return res.status(404).end();
+    } catch (err) {
+        next(err)
     }
-
-    persons.splice(index, 1);
-    return res.status(200).json({ error: false })
 })
 
-app.get('/info', (request, response) => {
+app.delete('/api/persons/:id', async (req, res, next) => {
 
-    let html = `
-    <p>Phonebook has info for ${persons.length} people(s)</p>
-    <br/>
-    `;
+    try {
+        const person = await Person.findByIdAndRemove(req.params.id);
 
-    html = html.concat((new Date()).toLocaleString());
+        if (!person) {
+            return res.status(404).send('not found');
+        }
 
-    response.send(html)
+        return res.status(200).json({ error: false })
+    } catch (err) {
+        next(err)
+    }
 })
+
+app.use(unknownEndpoint)
+app.use(errorHandler)
 
 const PORT = process.env.PORT || 3001
 app.listen(PORT, () => {
